@@ -1,0 +1,5 @@
+{
+  "name": "Zen-V",
+  "description": "Your Mind, Your Rhythm. A minimalist mental wellness app for students featuring AI companionship, micro-interventions, and gamified self-care.",
+  "requestFramePermissions": ["microphone"]
+}
