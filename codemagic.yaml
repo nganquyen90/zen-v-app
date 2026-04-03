@@ -5,6 +5,7 @@ workflows:
     instance_type: mac_mini_m2 # Sử dụng máy Mac để có thể build cả iOS và Android
     environment:
       node: 22
+      java: 21
       xcode: latest
       cocoapods: default
     
