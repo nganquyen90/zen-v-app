@@ -1,63 +1,13 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Send, Sparkles, X, Loader2, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../lib/LanguageContext';
 import { GoogleGenAI } from '@google/genai';
-import { collection, addDoc, getDocs, query, orderBy, limit, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, orderBy, limit, doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase';
+import { handleFirestoreError, OperationType } from '../lib/firestoreErrors';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string;
-    email?: string | null;
-    emailVerified?: boolean;
-    isAnonymous?: boolean;
-    tenantId?: string | null;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
 
 const TRANSLATIONS = {
   vi: {
@@ -70,7 +20,8 @@ const TRANSLATIONS = {
     empty: "Khu vườn đang tĩnh lặng. Hãy là người đầu tiên thắp sáng nhé!",
     aiName: "Đom đóm thông thái",
     moderationError: "Không thể kiểm duyệt tin nhắn lúc này. Vui lòng thử lại sau.",
-    fetchError: "Không thể tải thông điệp. Vui lòng thử lại sau."
+    fetchError: "Không thể tải thông điệp. Vui lòng thử lại sau.",
+    limitReached: "Bạn đã thả tối đa 3 đom đóm hôm nay. Hãy quay lại vào ngày mai nhé!"
   },
   en: {
     title: "Firefly Garden",
@@ -82,9 +33,12 @@ const TRANSLATIONS = {
     empty: "The garden is quiet. Be the first to light it up!",
     aiName: "Wise Firefly",
     moderationError: "Could not moderate message right now. Please try again later.",
-    fetchError: "Could not load messages. Please try again later."
+    fetchError: "Could not load messages. Please try again later.",
+    limitReached: "You've released the maximum of 3 fireflies today. Come back tomorrow!"
   }
 };
+
+const DAILY_LIMIT = 3;
 
 interface FireflyData {
   id: string;
@@ -115,10 +69,34 @@ export default function Circles() {
   const [selectedFirefly, setSelectedFirefly] = useState<FireflyData | null>(null);
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [pulsingFireflyId, setPulsingFireflyId] = useState<string | null>(null);
+  const [usageCount, setUsageCount] = useState(0);
+
+  const positionsRef = useRef<Record<string, {x: number, y: number, delay: number, duration: number}>>({});
+  const lastTapRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
-    fetchFireflies();
+    const fetchUsage = () => {
+      const userId = auth.currentUser?.uid || 'anonymous';
+      const today = new Date().toISOString().split('T')[0];
+      const storageKey = `zenv_firefly_usage_${userId}`;
+      const usage = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      if (usage.date === today) {
+        setUsageCount(usage.count || 0);
+      } else {
+        setUsageCount(0);
+      }
+    };
+    fetchUsage();
   }, []);
+
+  const incrementUsage = () => {
+    const userId = auth.currentUser?.uid || 'anonymous';
+    const today = new Date().toISOString().split('T')[0];
+    const storageKey = `zenv_firefly_usage_${userId}`;
+    const newCount = usageCount + 1;
+    localStorage.setItem(storageKey, JSON.stringify({ date: today, count: newCount }));
+    setUsageCount(newCount);
+  };
 
   const playDingSound = () => {
     try {
@@ -199,43 +177,90 @@ export default function Circles() {
     }
   };
 
-  const fetchFireflies = async () => {
+  const handleInteraction = (e: React.MouseEvent | React.TouchEvent, firefly: FireflyData) => {
+    e.stopPropagation();
+    const now = Date.now();
+    const lastTap = lastTapRef.current[firefly.id] || 0;
+
+    if (now - lastTap < 300) {
+      // Double tap detected
+      lastTapRef.current[firefly.id] = 0;
+      handleDoubleClick(e as any, firefly);
+    } else {
+      // Single tap
+      lastTapRef.current[firefly.id] = now;
+      setSelectedFirefly(firefly);
+    }
+  };
+
+  useEffect(() => {
     setIsLoading(true);
-    try {
-      const q = query(collection(db, 'fireflies'), orderBy('createdAt', 'desc'), limit(20));
-      const snapshot = await getDocs(q);
-      
+    const q = query(collection(db, 'fireflies'), orderBy('createdAt', 'desc'), limit(20));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched: any[] = [];
       snapshot.forEach(doc => {
         fetched.push({ id: doc.id, ...doc.data() });
       });
 
-      // Randomly pick 5-7 fireflies
-      const shuffled = fetched.sort(() => 0.5 - Math.random());
-      const selectedCount = Math.floor(Math.random() * 3) + 5; // 5 to 7
-      const selected = shuffled.slice(0, selectedCount).map(f => ({
-        ...f,
-        x: Math.random() * 80 + 10, // 10% to 90%
-        y: Math.random() * 60 + 10, // 10% to 70%
-        delay: Math.random() * 5,
-        duration: Math.random() * 10 + 15 // 15s to 25s
-      }));
+      if (Object.keys(positionsRef.current).length === 0 && fetched.length > 0) {
+        // Initial load
+        const shuffled = [...fetched].sort(() => 0.5 - Math.random());
+        const selectedCount = Math.floor(Math.random() * 3) + 5;
+        const selected = shuffled.slice(0, selectedCount);
+        
+        selected.forEach(f => {
+          positionsRef.current[f.id] = {
+            x: Math.random() * 80 + 10,
+            y: Math.random() * 60 + 10,
+            delay: Math.random() * 5,
+            duration: Math.random() * 10 + 15
+          };
+        });
+      } else {
+        // Check for newly added fireflies (not in positionsRef)
+        fetched.forEach(f => {
+          // If it's a new firefly created in the last 10 seconds, add it to screen
+          const isRecent = new Date().getTime() - new Date(f.createdAt).getTime() < 10000;
+          if (!positionsRef.current[f.id] && isRecent) {
+             positionsRef.current[f.id] = {
+                x: Math.random() * 80 + 10,
+                y: Math.random() * 60 + 10,
+                delay: Math.random() * 5,
+                duration: Math.random() * 10 + 15
+             };
+          }
+        });
+      }
 
-      setFireflies(selected);
-    } catch (err) {
+      // Build the final array to render
+      const toRender = fetched
+        .filter(f => positionsRef.current[f.id])
+        .map(f => ({
+          ...f,
+          ...positionsRef.current[f.id]
+        }));
+
+      setFireflies(toRender);
+      setIsLoading(false);
+    }, (err) => {
       console.error("Error fetching fireflies:", err);
       try {
         handleFirestoreError(err, OperationType.LIST, 'fireflies');
-      } catch (e) {
-        // Error is logged and thrown by handleFirestoreError
-      }
-    } finally {
+      } catch (e) {}
       setIsLoading(false);
-    }
-  };
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleSend = async () => {
     if (!input.trim() || input.length > 150 || isSending) return;
+
+    if (usageCount >= DAILY_LIMIT) {
+      setError(t.limitReached);
+      return;
+    }
 
     setIsSending(true);
     setError('');
@@ -300,14 +325,14 @@ export default function Circles() {
 
       try {
         await addDoc(collection(db, 'fireflies'), newFirefly);
+        incrementUsage();
       } catch (err) {
         handleFirestoreError(err, OperationType.CREATE, 'fireflies');
       }
       
       setInput('');
       setIsInputExpanded(false);
-      // Refresh garden to show the new firefly
-      fetchFireflies();
+      // Refresh garden to show the new firefly is handled by onSnapshot
 
     } catch (err) {
       console.error("Error sending firefly:", err);
@@ -361,31 +386,35 @@ export default function Circles() {
                 ease: "easeInOut",
                 delay: firefly.delay
               }}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedFirefly(firefly);
-              }}
-              onDoubleClick={(e) => handleDoubleClick(e, firefly)}
+              onClick={(e) => handleInteraction(e, firefly)}
             >
               <div className="relative group flex items-center justify-center">
+                {pulsingFireflyId === firefly.id && (
+                  <motion.div
+                    className="absolute rounded-full border-2 border-amber-300 pointer-events-none"
+                    initial={{ scale: 1, opacity: 1, width: '12px', height: '12px' }}
+                    animate={{ scale: 4, opacity: 0 }}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                  />
+                )}
                 <motion.div 
-                  className="bg-amber-200 rounded-full animate-pulse"
+                  className="bg-amber-200 rounded-full animate-pulse w-3 h-3"
                   animate={pulsingFireflyId === firefly.id ? {
-                    scale: [1, 1.5, 1],
+                    scale: [
+                      1 + Math.min(firefly.energy || 0, 50) * 0.125, 
+                      (1 + Math.min(firefly.energy || 0, 50) * 0.125) * 1.5, 
+                      1 + Math.min(firefly.energy || 0, 50) * 0.125
+                    ],
                     boxShadow: [
                       "0 0 15px 5px rgba(251,191,36,0.6)",
                       "0 0 30px 15px rgba(251,191,36,0.9)",
                       "0 0 15px 5px rgba(251,191,36,0.6)"
                     ]
                   } : {
-                    scale: 1,
+                    scale: 1 + Math.min(firefly.energy || 0, 50) * 0.125,
                     boxShadow: "0 0 15px 5px rgba(251,191,36,0.6)"
                   }}
                   transition={{ duration: 0.5 }}
-                  style={{ 
-                    width: `${12 + Math.min(firefly.energy || 0, 50) * 1.5}px`, 
-                    height: `${12 + Math.min(firefly.energy || 0, 50) * 1.5}px` 
-                  }}
                 ></motion.div>
                 
                 {/* Preview bubble on hover */}
@@ -419,7 +448,7 @@ export default function Circles() {
                 </div>
                 <button 
                   onClick={() => setSelectedFirefly(null)}
-                  className="text-white/50 hover:text-white bg-white/5 rounded-full p-1"
+                  className="text-white/50 hover:text-white bg-white/5 rounded-full p-2"
                 >
                   <X size={16} />
                 </button>
@@ -446,20 +475,25 @@ export default function Circles() {
       </AnimatePresence>
 
       {/* Input Area / FAB */}
-      <div className="absolute bottom-6 right-6 z-50 flex flex-col items-end">
+      <div className="absolute bottom-[max(env(safe-area-inset-bottom),1.5rem)] left-6 right-6 z-50 flex flex-col items-end">
         <AnimatePresence>
           {isInputExpanded && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="mb-4 w-[calc(100vw-3rem)] max-w-md bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-3xl shadow-2xl"
+              className="mb-4 w-full bg-white/10 backdrop-blur-xl border border-white/20 p-4 rounded-3xl shadow-2xl"
             >
               <div className="flex justify-between items-center mb-2">
-                <span className="text-amber-200 text-sm font-medium">{t.send}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-200 text-sm font-medium">{t.send}</span>
+                  <span className="text-amber-200/50 text-[10px] bg-amber-500/10 px-2 py-0.5 rounded-full">
+                    {usageCount}/{DAILY_LIMIT}
+                  </span>
+                </div>
                 <button 
                   onClick={() => setIsInputExpanded(false)}
-                  className="text-white/50 hover:text-white bg-white/5 rounded-full p-1"
+                  className="text-white/50 hover:text-white bg-white/5 rounded-full p-2"
                 >
                   <X size={16} />
                 </button>
@@ -471,29 +505,35 @@ export default function Circles() {
                 </div>
               )}
               
-              <div className="flex items-end gap-2 bg-black/20 p-2 rounded-2xl border border-white/10">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={t.placeholder}
-                  maxLength={150}
-                  rows={input.length > 50 ? 3 : 2}
-                  className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/40 px-3 py-2 resize-none"
-                  autoFocus
-                />
-                <div className="flex flex-col items-center justify-between py-1 gap-1 shrink-0">
-                  <span className={`text-[10px] font-medium ${input.length >= 150 ? 'text-red-400' : 'text-white/40'}`}>
-                    {input.length}/150
-                  </span>
-                  <button 
-                    onClick={handleSend}
-                    disabled={!input.trim() || isSending || input.length > 150}
-                    className="p-2.5 bg-amber-500 text-slate-900 rounded-full hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-[0_0_10px_rgba(245,158,11,0.3)]"
-                  >
-                    {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  </button>
+              {usageCount >= DAILY_LIMIT ? (
+                <div className="text-amber-200/80 text-sm text-center py-6 bg-black/20 rounded-2xl border border-white/10">
+                  {t.limitReached}
                 </div>
-              </div>
+              ) : (
+                <div className="flex items-end gap-2 bg-black/20 p-2 rounded-2xl border border-white/10">
+                  <textarea
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={t.placeholder}
+                    maxLength={150}
+                    rows={input.length > 50 ? 3 : 2}
+                    className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-white/40 px-3 py-2 resize-none"
+                    autoFocus
+                  />
+                  <div className="flex flex-col items-center justify-between py-1 gap-1 shrink-0">
+                    <span className={`text-[10px] font-medium ${input.length >= 150 ? 'text-red-400' : 'text-white/40'}`}>
+                      {input.length}/150
+                    </span>
+                    <button 
+                      onClick={handleSend}
+                      disabled={!input.trim() || isSending || input.length > 150}
+                      className="p-3 bg-amber-500 text-slate-900 rounded-full hover:bg-amber-400 disabled:opacity-50 transition-colors shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+                    >
+                      {isSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -505,7 +545,7 @@ export default function Circles() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsInputExpanded(true)}
-            className="w-14 h-14 bg-amber-500 text-slate-900 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:bg-amber-400 transition-colors"
+            className="w-14 h-14 bg-amber-500 text-slate-900 rounded-full flex items-center justify-center shadow-[0_0_20px_rgba(245,158,11,0.4)] hover:bg-amber-400 transition-all opacity-70 hover:opacity-100"
           >
             <Sparkles size={24} />
           </motion.button>

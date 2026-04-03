@@ -27,4 +27,17 @@
 body {
   background-color: var(--color-sage-50);
   color: #334155; /* slate-700 */
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh bounce */
+  -webkit-tap-highlight-color: transparent; /* Remove blue tap highlight on mobile */
+  touch-action: manipulation; /* Improve tap responsiveness */
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
 }

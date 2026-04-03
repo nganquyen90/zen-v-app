@@ -1,9 +1,46 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../lib/LanguageContext';
 import { GoogleGenAI } from '@google/genai';
-import { Loader2, Download, History, Edit3, Sparkles } from 'lucide-react';
+import { Loader2, Download, History, Edit3, Sparkles, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import html2canvas from 'html2canvas';
+
+const getTagColor = (tag: string, isSelected: boolean = false) => {
+  const lowerTag = tag.toLowerCase();
+  
+  let baseColor = '';
+  let selectedColor = '';
+  
+  if (['học tập', 'sáng tạo', 'tập thể dục', 'sức khỏe', 'study', 'exercise', 'health', 'creative'].includes(lowerTag)) {
+    baseColor = 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:border-emerald-300';
+    selectedColor = 'bg-emerald-500 text-white border-emerald-500';
+  } else if (['căng thẳng', 'deadline', 'thiếu ngủ', 'áp lực', 'stressed', 'sleep deprived', 'pressure'].includes(lowerTag)) {
+    baseColor = 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300';
+    selectedColor = 'bg-slate-600 text-white border-slate-600';
+  } else if (['tình cảm', 'gia đình', 'bạn bè', 'family', 'friends', 'relationships'].includes(lowerTag)) {
+    baseColor = 'bg-rose-50 text-rose-600 border-rose-200 hover:border-rose-300';
+    selectedColor = 'bg-rose-500 text-white border-rose-500';
+  } else {
+    baseColor = 'bg-sage-50 text-sage-600 border-sage-200 hover:border-sage-300';
+    selectedColor = 'bg-sage-600 text-white border-sage-600';
+  }
+
+  return isSelected ? selectedColor : baseColor;
+};
+
+const getHistoryTagColor = (tag: string) => {
+  const lowerTag = tag.toLowerCase();
+  if (['học tập', 'sáng tạo', 'tập thể dục', 'sức khỏe', 'study', 'exercise', 'health', 'creative'].includes(lowerTag)) {
+    return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+  }
+  if (['căng thẳng', 'deadline', 'thiếu ngủ', 'áp lực', 'stressed', 'sleep deprived', 'pressure'].includes(lowerTag)) {
+    return 'bg-slate-50 text-slate-600 border-slate-100';
+  }
+  if (['tình cảm', 'gia đình', 'bạn bè', 'family', 'friends', 'relationships'].includes(lowerTag)) {
+    return 'bg-rose-50 text-rose-600 border-rose-100';
+  }
+  return 'bg-sage-50 text-sage-600 border-sage-100';
+};
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -18,6 +55,7 @@ const TRANSLATIONS = {
     newEntry: "Viết nhật ký",
     download: "Tải về",
     emptyHistory: "Chưa có bản ghi nào. Hãy viết nhật ký đầu tiên của bạn nhé!",
+    searchPlaceholder: "Tìm kiếm theo ngày hoặc #tag...",
     moods: {
       overwhelmed: "Quá tải",
       stressed: "Căng thẳng",
@@ -37,6 +75,7 @@ const TRANSLATIONS = {
     newEntry: "New Entry",
     download: "Download",
     emptyHistory: "No entries yet. Write your first journal entry!",
+    searchPlaceholder: "Search by date or #tag...",
     moods: {
       overwhelmed: "Overwhelmed",
       stressed: "Stressed",
@@ -74,6 +113,7 @@ export default function Journal() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [entries, setEntries] = useState<JournalEntry[]>([]);
 
   useEffect(() => {
@@ -157,6 +197,31 @@ export default function Journal() {
       setIsSaving(false);
     }
   };
+
+  const filteredEntries = entries.filter(entry => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    
+    const hasTag = entry.tags.some(tag => 
+      tag.toLowerCase().includes(query) || 
+      `#${tag.toLowerCase()}`.includes(query)
+    );
+    
+    const date = new Date(entry.date);
+    const formattedDate = new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date).toLowerCase();
+    
+    const hasDate = formattedDate.includes(query);
+    const hasNote = entry.note.toLowerCase().includes(query);
+
+    return hasTag || hasDate || hasNote;
+  });
 
   const handleDownload = async (id: string) => {
     const element = document.getElementById(`journal-card-${id}`);
@@ -254,11 +319,7 @@ export default function Journal() {
                     <button
                       key={tag}
                       onClick={() => toggleTag(tag)}
-                      className={`px-4 py-2 rounded-full text-xs font-medium transition-colors border ${
-                        selectedTags.includes(tag)
-                          ? 'bg-sage-600 text-white border-sage-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-sage-300'
-                      }`}
+                      className={`px-4 py-2 rounded-full text-xs font-medium transition-colors border ${getTagColor(tag, selectedTags.includes(tag))}`}
                     >
                       {tag}
                     </button>
@@ -299,12 +360,23 @@ export default function Journal() {
               transition={{ duration: 0.2 }}
               className="space-y-6"
             >
-              {entries.length === 0 ? (
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t.searchPlaceholder}
+                  className="w-full pl-10 pr-4 py-3 rounded-2xl border border-sage-200 bg-white text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sage-400 focus:border-transparent"
+                />
+              </div>
+
+              {filteredEntries.length === 0 ? (
                 <div className="text-center py-12 text-slate-500">
-                  <p>{t.emptyHistory}</p>
+                  <p>{entries.length === 0 ? t.emptyHistory : (lang === 'vi' ? 'Không tìm thấy kết quả phù hợp.' : 'No matching results found.')}</p>
                 </div>
               ) : (
-                entries.map(entry => {
+                filteredEntries.map(entry => {
                   const moodObj = MOODS.find(m => m.value === entry.mood) || MOODS[2];
                   const date = new Date(entry.date);
                   const formattedDate = new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
@@ -348,7 +420,7 @@ export default function Journal() {
                         {entry.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1.5 mb-4">
                             {entry.tags.map(tag => (
-                              <span key={tag} className="px-2.5 py-1 bg-slate-50 text-slate-600 rounded-md text-[10px] font-medium border border-slate-100">
+                              <span key={tag} className={`px-2.5 py-1 rounded-md text-[10px] font-medium border ${getHistoryTagColor(tag)}`}>
                                 {tag}
                               </span>
                             ))}

@@ -1,4 +1,4 @@
-import { Wind, Headphones, Leaf, ArrowRight, Pause, Play, Sparkles, RefreshCw, Download } from 'lucide-react';
+import { Wind, Headphones, Leaf, Pause, Play, Sparkles, RefreshCw, Download, Music } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useLanguage } from '../lib/LanguageContext';
@@ -204,11 +204,18 @@ export default function Dashboard({ onNavigate }: { onNavigate: (tab: any) => vo
       setPlayingId(null);
     } else {
       audioRef.current.src = url;
-      audioRef.current.play().catch(e => {
-        console.error("Audio play failed", e);
-        setPlayingId(null);
-        alert(t.audioError);
-      });
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(e => {
+          if (e.name === 'AbortError') {
+            // Expected when play is interrupted by pause
+            return;
+          }
+          console.error("Audio play failed", e);
+          setPlayingId(null);
+          alert(t.audioError);
+        });
+      }
       setPlayingId(id);
     }
   };
@@ -236,9 +243,38 @@ export default function Dashboard({ onNavigate }: { onNavigate: (tab: any) => vo
       <audio ref={audioRef} loop preload="none" />
 
       {/* Welcome Section */}
-      <section>
-        <h2 className="text-3xl font-serif text-sage-800 mb-1">{getGreeting()}</h2>
-        <p className="text-sage-600">{t.subtitle}</p>
+      <section className="flex justify-between items-start">
+        <div>
+          <h2 className="text-3xl font-serif text-sage-800 mb-1">{getGreeting()}</h2>
+          <p className="text-sage-600">{t.subtitle}</p>
+        </div>
+        
+        {/* Global Audio Controller */}
+        <button 
+          onClick={() => {
+            if (playingId) {
+              toggleSound(playingId, '');
+            } else {
+              // Play the first soundscape by default if none is playing
+              toggleSound(SOUNDSCAPES[0].id, SOUNDSCAPES[0].url);
+            }
+          }}
+          className={`p-3 rounded-full transition-all duration-300 shadow-sm border ${playingId ? 'bg-sage-100 text-sage-700 border-sage-200 shadow-inner' : 'bg-white text-slate-400 border-slate-100 hover:bg-slate-50'}`}
+          title="Relaxation Audio"
+        >
+          {playingId ? (
+            <div className="relative flex items-center justify-center w-6 h-6">
+              <span className="absolute w-full h-full rounded-full bg-sage-400 opacity-20 animate-ping"></span>
+              <div className="flex gap-0.5 items-end h-4">
+                <motion.div animate={{ height: ['4px', '14px', '4px'] }} transition={{ repeat: Infinity, duration: 0.8 }} className="w-1 bg-sage-600 rounded-full" />
+                <motion.div animate={{ height: ['8px', '6px', '8px'] }} transition={{ repeat: Infinity, duration: 0.8, delay: 0.2 }} className="w-1 bg-sage-600 rounded-full" />
+                <motion.div animate={{ height: ['4px', '12px', '4px'] }} transition={{ repeat: Infinity, duration: 0.8, delay: 0.4 }} className="w-1 bg-sage-600 rounded-full" />
+              </div>
+            </div>
+          ) : (
+            <Music size={24} />
+          )}
+        </button>
       </section>
 
       {/* 30-Second Reset */}
@@ -254,9 +290,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (tab: any) => vo
           {!isBreathing ? (
             <button 
               onClick={startBreathing}
-              className="bg-softblue-100 text-softblue-700 px-4 py-2 rounded-full text-sm font-medium hover:bg-softblue-200 transition-colors"
+              className="relative bg-softblue-100 text-softblue-700 px-5 py-3 rounded-full text-sm font-medium hover:bg-softblue-200 transition-colors group"
             >
-              {t.start}
+              <span className="absolute inset-0 rounded-full shadow-[0_0_15px_rgba(147,197,253,0.6)] animate-pulse"></span>
+              <span className="relative z-10">{t.start}</span>
             </button>
           ) : (
             <span className="text-softblue-600 font-medium capitalize animate-pulse">
@@ -294,7 +331,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (tab: any) => vo
               <div className="flex gap-2">
                 <button 
                   onClick={changeQuote}
-                  className="p-1.5 text-sage-500 hover:text-sage-800 hover:bg-sage-200 rounded-full transition-colors"
+                  className="p-2.5 text-sage-500 hover:text-sage-800 hover:bg-sage-200 rounded-full transition-colors"
                   aria-label="Change quote"
                 >
                   <RefreshCw size={16} />
@@ -302,7 +339,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (tab: any) => vo
                 <button 
                   onClick={saveQuoteImage}
                   disabled={isExporting}
-                  className="p-1.5 text-sage-500 hover:text-sage-800 hover:bg-sage-200 rounded-full transition-colors disabled:opacity-50"
+                  className="p-2.5 text-sage-500 hover:text-sage-800 hover:bg-sage-200 rounded-full transition-colors disabled:opacity-50"
                   aria-label="Save quote to gallery"
                 >
                   <Download size={16} />

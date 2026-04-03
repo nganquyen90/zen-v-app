@@ -108,6 +108,30 @@ export default function Game() {
     setHasWon(false);
   };
 
+  const playClickSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1200, audioCtx.currentTime); // High pitch click
+      oscillator.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.05);
+      
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.2, audioCtx.currentTime + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+      
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.1);
+    } catch (e) {
+      console.error("Audio playback failed", e);
+    }
+  };
+
   const handleDragEnd = (e: any, info: any, color: any) => {
     const target = e.target;
     const originalVisibility = target.style.visibility;
@@ -122,6 +146,7 @@ export default function Game() {
       const expectedId = dropZone.getAttribute('data-expected-id');
       if (expectedId === color.id) {
         setPlacedColors(prev => [...prev, color.id]);
+        playClickSound();
       }
     }
   };
@@ -193,7 +218,7 @@ export default function Game() {
               ) : (
                 <button
                   onClick={startNewSession}
-                  className="px-8 py-3.5 bg-slate-800 text-white rounded-full font-medium hover:bg-slate-700 transition-all active:scale-95 shadow-sm text-sm"
+                  className="px-8 py-4 bg-slate-800 text-white rounded-full font-medium hover:bg-slate-700 transition-all active:scale-95 shadow-sm text-sm"
                 >
                   {t.startBtn}
                 </button>
@@ -223,7 +248,7 @@ export default function Game() {
               </p>
               <button
                 onClick={() => setHasWon(false)}
-                className="px-8 py-3.5 bg-white border border-slate-200 text-slate-700 rounded-full font-medium hover:bg-slate-50 transition-all active:scale-95 text-sm shadow-sm"
+                className="px-8 py-4 bg-white border border-slate-200 text-slate-700 rounded-full font-medium hover:bg-slate-50 transition-all active:scale-95 text-sm shadow-sm"
               >
                 {t.backBtn}
               </button>
@@ -252,9 +277,9 @@ export default function Game() {
                       {placedColors.includes(color.id) && (
                         <motion.div 
                           layoutId={`item-${color.id}`}
-                          className="absolute inset-0 rounded-full shadow-inner"
+                          className="absolute inset-0 rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)]"
                           style={{ backgroundColor: color.hex }}
-                          initial={{ scale: 1.1, filter: 'brightness(1.2)' }}
+                          initial={{ scale: 1.2, filter: 'brightness(1.5)' }}
                           animate={{ scale: 1, filter: 'brightness(1)' }}
                           transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                         />

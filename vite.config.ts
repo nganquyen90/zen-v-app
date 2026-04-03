@@ -2,11 +2,35 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(), 
+      tailwindcss(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+        manifest: {
+          name: 'Zen-V Journal',
+          short_name: 'Zen-V',
+          description: 'Ứng dụng nhật ký cảm xúc Zen-V',
+          theme_color: '#f8fafc',
+          background_color: '#f8fafc',
+          display: 'standalone',
+          icons: [
+            {
+              src: 'icon.svg',
+              sizes: '192x192 512x512',
+              type: 'image/svg+xml',
+              purpose: 'any maskable'
+            }
+          ]
+        }
+      })
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
     },
