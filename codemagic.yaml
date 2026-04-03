@@ -1,0 +1,53 @@
+workflows:
+  zen-v-build:
+    name: Zen-V Build (Web & Mobile)
+    max_build_duration: 120
+    instance_type: mac_mini_m2 # Sử dụng máy Mac để có thể build cả iOS và Android
+    environment:
+      node: 20
+      xcode: latest
+      cocoapods: default
+    
+    scripts:
+      - name: Install npm dependencies
+        script: npm install
+      
+      - name: Build React (Vite) Web App
+        script: npm run build
+        
+      - name: Sync Capacitor (Nếu có sử dụng Capacitor)
+        script: |
+          # Kiểm tra xem dự án đã cài đặt Capacitor chưa
+          if [ -f "capacitor.config.ts" ] || [ -f "capacitor.config.json" ]; then
+            echo "Đang đồng bộ source code web vào native projects..."
+            npx cap sync
+          else
+            echo "Không tìm thấy cấu hình Capacitor. Bỏ qua bước đồng bộ."
+          fi
+          
+      - name: Build Android (Debug APK)
+        script: |
+          if [ -d "android" ]; then
+            echo "Đang build Android APK..."
+            cd android
+            ./gradlew assembleDebug
+          else
+            echo "Thư mục 'android' không tồn tại. Bỏ qua build Android."
+            echo "Gợi ý: Chạy 'npx cap add android' ở máy local của bạn trước khi push code."
+          fi
+          
+      - name: Build iOS (Simulator App - No Code Signing)
+        script: |
+          if [ -d "ios" ]; then
+            echo "Đang build iOS App..."
+            cd ios/App
+            xcodebuild build -workspace App.xcworkspace -scheme App -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+          else
+            echo "Thư mục 'ios' không tồn tại. Bỏ qua build iOS."
+            echo "Gợi ý: Chạy 'npx cap add ios' ở máy local của bạn trước khi push code."
+          fi
+          
+    artifacts:
+      - dist/** # File web tĩnh (để host lên web nếu cần)
+      - android/app/build/outputs/**/*.apk # File cài đặt Android
+      - ios/build/Build/Products/Debug-iphonesimulator/*.app # File iOS Simulator
