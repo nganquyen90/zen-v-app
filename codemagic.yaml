@@ -30,6 +30,8 @@ workflows:
           if [ -d "android" ]; then
             echo "Đang build Android APK..."
             cd android
+            # Khắc phục lỗi corrupt gradle-wrapper.jar bằng cách dùng gradle hệ thống để tạo lại
+            gradle wrapper
             chmod +x gradlew
             ./gradlew assembleDebug
           else
@@ -42,7 +44,10 @@ workflows:
           if [ -d "ios" ]; then
             echo "Đang build iOS App..."
             cd ios/App
-            xcodebuild build -workspace App.xcworkspace -scheme App -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+            # Đảm bảo CocoaPods đã được cài đặt đầy đủ
+            pod install
+            # Chỉ định rõ thư mục xuất file build (derivedDataPath) để Codemagic dễ dàng thu thập Artifacts
+            xcodebuild build -workspace App.xcworkspace -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
           else
             echo "Thư mục 'ios' không tồn tại. Bỏ qua build iOS."
             echo "Gợi ý: Chạy 'npx cap add ios' ở máy local của bạn trước khi push code."
@@ -51,4 +56,4 @@ workflows:
     artifacts:
       - dist/** # File web tĩnh (để host lên web nếu cần)
       - android/app/build/outputs/**/*.apk # File cài đặt Android
-      - ios/build/Build/Products/Debug-iphonesimulator/*.app # File iOS Simulator
+      - ios/App/build/Build/Products/Debug-iphonesimulator/*.app # File iOS Simulator
