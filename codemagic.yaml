@@ -48,7 +48,7 @@ workflows:
             # Tìm ID của một máy ảo iPhone bất kỳ đang có sẵn trên server Codemagic
             SIM_ID=$(xcrun simctl list devices available | grep "iPhone" | head -n 1 | grep -E -o -i "([0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12})")
             echo "Sử dụng Simulator ID: $SIM_ID"
-            # Build với ID cụ thể để tránh lỗi CompileAssetCatalogVariant thinned của generic simulator
+            # Build với ID cụ thể
             xcodebuild build -project App.xcodeproj -scheme App -destination "platform=iOS Simulator,id=$SIM_ID" -derivedDataPath build CODE_SIGNING_ALLOWED=NO
           else
             echo "Thư mục 'ios' không tồn tại. Bỏ qua build iOS."
