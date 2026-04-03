@@ -47,7 +47,7 @@ workflows:
             cd ios/App
             # Capacitor mới nhất sử dụng Swift Package Manager (SPM) thay vì CocoaPods.
             # Do đó không có Podfile và không dùng .xcworkspace, ta dùng .xcodeproj
-            xcodebuild build -project App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 15' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+            xcodebuild build -project App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO
           else
             echo "Thư mục 'ios' không tồn tại. Bỏ qua build iOS."
             echo "Gợi ý: Chạy 'npx cap add ios' ở máy local của bạn trước khi push code."
