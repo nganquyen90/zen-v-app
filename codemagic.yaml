@@ -30,6 +30,7 @@ workflows:
           if [ -d "android" ]; then
             echo "Đang build Android APK..."
             cd android
+            chmod +x gradlew
             ./gradlew assembleDebug
           else
             echo "Thư mục 'android' không tồn tại. Bỏ qua build Android."
