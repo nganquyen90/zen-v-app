@@ -4,12 +4,12 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Home, MessageCircleHeart, BookHeart, Sprout, UsersRound, PhoneCall, LogOut, Globe, ShieldAlert } from 'lucide-react';
+import { Home, MessageCircleHeart, BookHeart, Sprout, UsersRound, PhoneCall, LogOut, Globe, ShieldAlert, Settings, X, Trash2, ExternalLink } from 'lucide-react';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'motion/react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { doc, getDoc, updateDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { useLanguage } from './lib/LanguageContext';
 import { handleFirestoreError, OperationType } from './lib/firestoreErrors';
 
@@ -30,7 +30,15 @@ const TRANSLATIONS = {
     subtitle: "Làm chủ tâm trí. Khơi nhịp tự do",
     crisis: "Nút Khẩn Cấp",
     crisisAlert: "Nút Khẩn Cấp: Đang kết nối với bộ phận hỗ trợ...",
+    emergencyNumber: "Số điện thoại khẩn cấp",
+    emergencyNumberPlaceholder: "Nhập số điện thoại...",
+    emergencyNotSet: "Bạn chưa cài đặt số điện thoại khẩn cấp. Vui lòng cài đặt trong phần Cài đặt.",
+    save: "Lưu",
     signOut: "Đăng xuất",
+    settings: "Cài đặt",
+    deleteAccount: "Xóa tài khoản",
+    deleteAccountConfirm: "Bạn có chắc chắn muốn xóa tài khoản? Hành động này không thể hoàn tác.",
+    privacyPolicy: "Chính sách bảo mật",
     tabs: {
       home: "Trang chủ",
       companion: "Trợ lý",
@@ -43,7 +51,15 @@ const TRANSLATIONS = {
     subtitle: "Your Mind, Your Rhythm.",
     crisis: "Crisis Button",
     crisisAlert: "Crisis Button: Connecting to emergency support...",
+    emergencyNumber: "Emergency Contact Number",
+    emergencyNumberPlaceholder: "Enter phone number...",
+    emergencyNotSet: "You haven't set an emergency contact number. Please set it in Settings.",
+    save: "Save",
     signOut: "Sign Out",
+    settings: "Settings",
+    deleteAccount: "Delete Account",
+    deleteAccountConfirm: "Are you sure you want to delete your account? This action cannot be undone.",
+    privacyPolicy: "Privacy Policy",
     tabs: {
       home: "Home",
       companion: "Companion",
@@ -60,6 +76,9 @@ export default function App() {
   const [userData, setUserData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [tempEmergencyNumber, setTempEmergencyNumber] = useState('');
+  const [isSavingEmergency, setIsSavingEmergency] = useState(false);
   const [asyncError, setAsyncError] = useState<Error | null>(null);
   const { lang, setLang } = useLanguage();
   const t = TRANSLATIONS[lang];
@@ -67,6 +86,12 @@ export default function App() {
   if (asyncError) {
     throw asyncError;
   }
+
+  useEffect(() => {
+    if (showSettings && userData) {
+      setTempEmergencyNumber(userData.emergencyNumber || '');
+    }
+  }, [showSettings, userData]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -148,6 +173,47 @@ export default function App() {
 
   const handleSignOut = () => {
     signOut(auth);
+    setShowSettings(false);
+  };
+
+  const handleSaveEmergencyNumber = async () => {
+    if (!user) return;
+    setIsSavingEmergency(true);
+    try {
+      await setDoc(doc(db, 'users', user.uid), { emergencyNumber: tempEmergencyNumber }, { merge: true });
+      setUserData({ ...userData, emergencyNumber: tempEmergencyNumber });
+      // Optional: show a success toast or just close settings
+      setShowSettings(false);
+    } catch (err) {
+      console.error("Error saving emergency number:", err);
+      alert(lang === 'vi' ? 'Đã xảy ra lỗi khi lưu số khẩn cấp.' : 'An error occurred while saving the emergency number.');
+    } finally {
+      setIsSavingEmergency(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (window.confirm(t.deleteAccountConfirm)) {
+      try {
+        if (user) {
+          try {
+            await deleteDoc(doc(db, 'users', user.uid));
+          } catch (e) {
+            console.error("Error deleting user document:", e);
+          }
+          await user.delete();
+          setShowSettings(false);
+        }
+      } catch (error: any) {
+        if (error.code === 'auth/requires-recent-login') {
+          alert(lang === 'vi' ? 'Vui lòng đăng nhập lại để thực hiện hành động này.' : 'Please sign in again to perform this action.');
+          handleSignOut();
+        } else {
+          console.error("Error deleting account:", error);
+          alert(lang === 'vi' ? 'Đã xảy ra lỗi khi xóa tài khoản.' : 'An error occurred while deleting the account.');
+        }
+      }
+    }
   };
 
   const tabs = [
@@ -221,16 +287,23 @@ export default function App() {
           <button 
             className="p-3 rounded-full bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
             title={t.crisis}
-            onClick={() => alert(t.crisisAlert)}
+            onClick={() => {
+              if (userData?.emergencyNumber) {
+                window.location.href = `tel:${userData.emergencyNumber}`;
+              } else {
+                alert(t.emergencyNotSet);
+                setShowSettings(true);
+              }
+            }}
           >
             <PhoneCall size={20} />
           </button>
           <button 
             className="p-3 rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
-            title={t.signOut}
-            onClick={handleSignOut}
+            title={t.settings}
+            onClick={() => setShowSettings(true)}
           >
-            <LogOut size={20} />
+            <Settings size={20} />
           </button>
         </div>
       </header>
@@ -291,6 +364,93 @@ export default function App() {
           })}
         </ul>
       </nav>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div 
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl p-6 shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-sage-800">{t.settings}</h2>
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 mb-4">
+                  <label className="block text-sm font-medium text-slate-700 mb-2">
+                    {t.emergencyNumber}
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      value={tempEmergencyNumber}
+                      onChange={(e) => setTempEmergencyNumber(e.target.value)}
+                      placeholder={t.emergencyNumberPlaceholder}
+                      className="flex-1 px-4 py-2 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sage-400 focus:border-transparent transition-all"
+                    />
+                    <button
+                      onClick={handleSaveEmergencyNumber}
+                      disabled={isSavingEmergency}
+                      className="px-4 py-2 bg-sage-600 text-white rounded-xl font-medium hover:bg-sage-700 transition-colors disabled:opacity-50"
+                    >
+                      {isSavingEmergency ? '...' : t.save}
+                    </button>
+                  </div>
+                </div>
+
+                <a 
+                  href="https://sites.google.com/view/zen-vpolicy/home-page" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between w-full p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors text-left"
+                >
+                  <div className="flex items-center gap-3 text-slate-700 font-medium">
+                    <ShieldAlert size={20} className="text-softblue-500" />
+                    {t.privacyPolicy}
+                  </div>
+                  <ExternalLink size={16} className="text-slate-400" />
+                </a>
+
+                <button 
+                  onClick={handleSignOut}
+                  className="flex items-center gap-3 w-full p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 transition-colors text-left text-slate-700 font-medium"
+                >
+                  <LogOut size={20} className="text-slate-500" />
+                  {t.signOut}
+                </button>
+
+                <div className="pt-4 mt-4 border-t border-slate-100">
+                  <button 
+                    onClick={handleDeleteAccount}
+                    className="flex items-center gap-3 w-full p-4 rounded-2xl bg-red-50 hover:bg-red-100 transition-colors text-left text-red-600 font-medium"
+                  >
+                    <Trash2 size={20} />
+                    {t.deleteAccount}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
