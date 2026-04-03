@@ -31,10 +31,8 @@ workflows:
           if [ -d "android" ]; then
             echo "Đang build Android APK..."
             cd android
-            # Khắc phục lỗi corrupt gradle-wrapper.jar bằng cách dùng gradle hệ thống để tạo lại
-            gradle wrapper
-            chmod +x gradlew
-            ./gradlew assembleDebug
+            # Dùng gradle hệ thống thay vì gradlew để tránh lỗi tải wrapper từ github (đang bị 500)
+            gradle assembleDebug
           else
             echo "Thư mục 'android' không tồn tại. Bỏ qua build Android."
             echo "Gợi ý: Chạy 'npx cap add android' ở máy local của bạn trước khi push code."
